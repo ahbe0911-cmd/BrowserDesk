@@ -4,18 +4,89 @@
     StartupUri="MainWindow.xaml">
     <Application.Resources>
         <SolidColorBrush x:Key="AccentBrush" Color="#2563EB"/>
-        <Style TargetType="Button">
-            <Setter Property="Padding" Value="14,8"/>
-            <Setter Property="Margin" Value="4"/>
+        <SolidColorBrush x:Key="TextBrush" Color="#0F172A"/>
+        <SolidColorBrush x:Key="MutedBrush" Color="#64748B"/>
+
+        <Style x:Key="PrimaryButtonStyle" TargetType="Button">
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="Background" Value="{StaticResource AccentBrush}"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Padding" Value="18,10"/>
             <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border Background="{TemplateBinding Background}"
+                                CornerRadius="10"
+                                Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center"
+                                              VerticalAlignment="Center"/>
+                        </Border>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
         </Style>
-        <Style TargetType="TextBox">
-            <Setter Property="Padding" Value="10,7"/>
-            <Setter Property="Margin" Value="4"/>
+
+        <Style x:Key="BookmarkCardStyle" TargetType="Button">
+            <Setter Property="Background" Value="White"/>
+            <Setter Property="BorderBrush" Value="#E2E8F0"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Padding" Value="14,10"/>
+            <Setter Property="Margin" Value="0,0,10,0"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="Card"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="12"
+                                Padding="{TemplateBinding Padding}">
+                            <ContentPresenter/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Card" Property="Background" Value="#F8FAFC"/>
+                                <Setter TargetName="Card" Property="BorderBrush" Value="#93C5FD"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
         </Style>
-        <Style TargetType="ComboBox">
-            <Setter Property="Padding" Value="8,6"/>
-            <Setter Property="Margin" Value="4"/>
+
+        <Style x:Key="BrowserChoiceStyle" TargetType="RadioButton">
+            <Setter Property="Foreground" Value="{StaticResource TextBrush}"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Margin" Value="0,0,0,10"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="RadioButton">
+                        <Border x:Name="Card"
+                                Background="White"
+                                BorderBrush="#E2E8F0"
+                                BorderThickness="1"
+                                CornerRadius="14"
+                                Padding="14">
+                            <ContentPresenter/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Card" Property="Background" Value="#F8FAFC"/>
+                            </Trigger>
+                            <Trigger Property="IsChecked" Value="True">
+                                <Setter TargetName="Card" Property="Background" Value="#EFF6FF"/>
+                                <Setter TargetName="Card" Property="BorderBrush" Value="#2563EB"/>
+                                <Setter TargetName="Card" Property="BorderThickness" Value="2"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter TargetName="Card" Property="Opacity" Value="0.45"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
         </Style>
     </Application.Resources>
 </Application>
