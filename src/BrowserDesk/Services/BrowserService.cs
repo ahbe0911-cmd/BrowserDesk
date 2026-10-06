@@ -1,5 +1,5 @@
-using System.IO;
 using System.Diagnostics;
+using System.IO;
 using System.Runtime.InteropServices;
 using Microsoft.Win32;
 using BrowserDesk.Models;
@@ -36,7 +36,8 @@ public sealed class BrowserService
     public string GetVersionText(BrowserKind browser)
     {
         var path = GetExecutable(browser);
-        if (path is null) return "نصب نیست";
+        if (path is null)
+            return "نصب نیست";
 
         try
         {
@@ -48,18 +49,57 @@ public sealed class BrowserService
         }
     }
 
-    public async Task OpenAsync(BrowserKind browser, string url, bool tileLeft)
+    public async Task<IntPtr> OpenEmbeddedWindowAsync(BrowserKind browser, string url)
     {
-        var path = GetExecutable(browser)
-            ?? throw new FileNotFoundException($"مرورگر {browser} روی ویندوز پیدا نشد.");
+        var executable = GetExecutable(browser)
+            ?? throw new FileNotFoundException($"مرورگر {GetDisplayName(browser)} روی ویندوز نصب نیست.");
 
-        var info = new ProcessStartInfo(path) { UseShellExecute = false };
-        info.ArgumentList.Add(browser == BrowserKind.Firefox ? "-new-window" : "--new-window");
-        info.ArgumentList.Add(url);
-        Process.Start(info);
+        var before = EnumerateBrowserWindows(browser).ToHashSet();
 
-        if (!tileLeft) return;
+        var startInfo = new ProcessStartInfo
+        {
+            FileName = executable,
+            UseShellExecute = false
+        };
 
+        if (browser == BrowserKind.Firefox)
+            startInfo.ArgumentList.Add("-new-window");
+        else
+            startInfo.ArgumentList.Add("--new-window");
+
+        startInfo.ArgumentList.Add(url);
+        Process.Start(startInfo);
+
+        for (var i = 0; i < 50; i++)
+        {
+            await Task.Delay(200);
+
+            var handle = EnumerateBrowserWindows(browser)
+                .FirstOrDefault(h => !before.Contains(h));
+
+            if (handle != IntPtr.Zero)
+            {
+                ShowWindow(handle, SW_RESTORE);
+                return handle;
+            }
+        }
+
+        throw new InvalidOperationException(
+            $"پنجره جدید {GetDisplayName(browser)} پیدا نشد. مرورگر را ببندید و دوباره امتحان کنید.");
+    }
+
+    public bool IsInstalled(BrowserKind browser) => GetExecutable(browser) is not null;
+
+    private static string GetDisplayName(BrowserKind browser) => browser switch
+    {
+        BrowserKind.Chrome => "Google Chrome",
+        BrowserKind.Firefox => "Mozilla Firefox",
+        BrowserKind.Edge => "Microsoft Edge",
+        _ => browser.ToString()
+    };
+
+    private static IReadOnlyList<IntPtr> EnumerateBrowserWindows(BrowserKind browser)
+    {
         var processName = browser switch
         {
             BrowserKind.Chrome => "chrome",
@@ -68,23 +108,31 @@ public sealed class BrowserService
             _ => ""
         };
 
-        for (var i = 0; i < 30; i++)
+        var handles = new List<IntPtr>();
+
+        EnumWindows((hwnd, _) =>
         {
-            await Task.Delay(200);
+            if (!IsWindowVisible(hwnd))
+                return true;
 
-            var window = Process.GetProcessesByName(processName)
-                .Select(p => p.MainWindowHandle)
-                .FirstOrDefault(h => h != IntPtr.Zero);
+            GetWindowThreadProcessId(hwnd, out var processId);
 
-            if (window != IntPtr.Zero)
+            try
             {
-                Tile(window, true);
-                return;
+                using var process = Process.GetProcessById((int)processId);
+                if (string.Equals(process.ProcessName, processName, StringComparison.OrdinalIgnoreCase))
+                    handles.Add(hwnd);
             }
-        }
-    }
+            catch
+            {
+                // Process can exit while windows are being enumerated.
+            }
 
-    public void TileRight(IntPtr hwnd) => Tile(hwnd, false);
+            return true;
+        }, IntPtr.Zero);
+
+        return handles;
+    }
 
     private static IEnumerable<string> GetFallbackPaths(BrowserKind browser)
     {
@@ -114,48 +162,19 @@ public sealed class BrowserService
         };
     }
 
-    private static void Tile(IntPtr hwnd, bool left)
-    {
-        ShowWindow(hwnd, 9);
-        var monitor = MonitorFromWindow(hwnd, 2);
-        var mi = new MONITORINFO { cbSize = Marshal.SizeOf<MONITORINFO>() };
-        if (!GetMonitorInfo(monitor, ref mi)) return;
+    private const int SW_RESTORE = 9;
 
-        var width = mi.rcWork.Right - mi.rcWork.Left;
-        var height = mi.rcWork.Bottom - mi.rcWork.Top;
-        var half = width / 2;
-        var x = left ? mi.rcWork.Left : mi.rcWork.Left + half;
-
-        SetWindowPos(hwnd, IntPtr.Zero, x, mi.rcWork.Top, half, height, 0x0004 | 0x0040);
-    }
+    private delegate bool EnumWindowsProc(IntPtr hwnd, IntPtr lParam);
 
     [DllImport("user32.dll")]
-    private static extern IntPtr MonitorFromWindow(IntPtr hwnd, uint flags);
-
-    [DllImport("user32.dll", CharSet = CharSet.Auto)]
-    private static extern bool GetMonitorInfo(IntPtr monitor, ref MONITORINFO info);
+    private static extern bool EnumWindows(EnumWindowsProc callback, IntPtr lParam);
 
     [DllImport("user32.dll")]
-    private static extern bool SetWindowPos(IntPtr hwnd, IntPtr after, int x, int y, int cx, int cy, uint flags);
+    private static extern bool IsWindowVisible(IntPtr hwnd);
+
+    [DllImport("user32.dll")]
+    private static extern uint GetWindowThreadProcessId(IntPtr hwnd, out uint processId);
 
     [DllImport("user32.dll")]
     private static extern bool ShowWindow(IntPtr hwnd, int command);
-
-    [StructLayout(LayoutKind.Sequential)]
-    private struct RECT
-    {
-        public int Left;
-        public int Top;
-        public int Right;
-        public int Bottom;
-    }
-
-    [StructLayout(LayoutKind.Sequential)]
-    private struct MONITORINFO
-    {
-        public int cbSize;
-        public RECT rcMonitor;
-        public RECT rcWork;
-        public uint dwFlags;
-    }
 }
