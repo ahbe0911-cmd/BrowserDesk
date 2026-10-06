@@ -2,7 +2,6 @@ using System.Collections.ObjectModel;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
-using System.Windows.Interop;
 using BrowserDesk.Models;
 using BrowserDesk.Services;
 
@@ -13,66 +12,164 @@ public partial class MainWindow : Window
     private readonly BrowserService _browserService = new();
     private readonly BookmarkService _bookmarkService = new();
     private readonly ObservableCollection<Bookmark> _bookmarks;
+    private BrowserKind _selectedBrowser = BrowserKind.Chrome;
 
     public MainWindow()
     {
         InitializeComponent();
 
         _bookmarks = new ObservableCollection<Bookmark>(_bookmarkService.Load());
-        BookmarksGrid.ItemsSource = _bookmarks;
-        QuickBrowserCombo.SelectedIndex = 0;
-        BookmarkBrowserCombo.SelectedIndex = 0;
+        BookmarksItems.ItemsSource = _bookmarks;
 
         Loaded += (_, _) => RefreshBrowserStatus();
+        Closed += (_, _) => BrowserHost.CloseHostedWindow();
     }
 
     private void RefreshBrowserStatus()
     {
-        BrowserStatusText.Text =
-            $"Chrome: {_browserService.GetVersionText(BrowserKind.Chrome)}\n" +
-            $"Firefox: {_browserService.GetVersionText(BrowserKind.Firefox)}\n" +
-            $"Edge: {_browserService.GetVersionText(BrowserKind.Edge)}";
+        ChromeVersionText.Text = GetStatus(BrowserKind.Chrome);
+        FirefoxVersionText.Text = GetStatus(BrowserKind.Firefox);
+        EdgeVersionText.Text = GetStatus(BrowserKind.Edge);
+
+        ChromeChoice.IsEnabled = _browserService.IsInstalled(BrowserKind.Chrome);
+        FirefoxChoice.IsEnabled = _browserService.IsInstalled(BrowserKind.Firefox);
+        EdgeChoice.IsEnabled = _browserService.IsInstalled(BrowserKind.Edge);
+
+        if (!ChromeChoice.IsEnabled)
+        {
+            if (FirefoxChoice.IsEnabled)
+                FirefoxChoice.IsChecked = true;
+            else if (EdgeChoice.IsEnabled)
+                EdgeChoice.IsChecked = true;
+        }
     }
 
-    private async void OpenQuick_Click(object sender, RoutedEventArgs e)
+    private string GetStatus(BrowserKind browser)
     {
-        await OpenUrlAsync(QuickUrlBox.Text, GetSelectedBrowser(QuickBrowserCombo));
+        var version = _browserService.GetVersionText(browser);
+        return version == "نصب نیست" ? "نصب نیست" : $"Version {version}";
     }
 
-    private async void BookmarksGrid_MouseDoubleClick(object sender, MouseButtonEventArgs e)
+    private void BrowserChoice_Checked(object sender, RoutedEventArgs e)
     {
-        if (BookmarksGrid.SelectedItem is Bookmark bookmark)
-            await OpenUrlAsync(bookmark.Url, bookmark.Browser);
+        if (sender is not RadioButton radio ||
+            !Enum.TryParse<BrowserKind>(radio.Tag?.ToString(), out var browser))
+            return;
+
+        _selectedBrowser = browser;
+
+        if (CurrentBrowserText is not null)
+        {
+            CurrentBrowserText.Text = browser switch
+            {
+                BrowserKind.Chrome => "مرورگر انتخاب‌شده: Google Chrome",
+                BrowserKind.Firefox => "مرورگر انتخاب‌شده: Mozilla Firefox",
+                BrowserKind.Edge => "مرورگر انتخاب‌شده: Microsoft Edge",
+                _ => "مرورگر انتخاب‌شده"
+            };
+        }
     }
 
-    private async Task OpenUrlAsync(string rawUrl, BrowserKind browser)
+    private async void Bookmark_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is Button { DataContext: Bookmark bookmark })
+            await OpenUrlAsync(bookmark.Url);
+    }
+
+    private void Bookmark_RightClick(object sender, MouseButtonEventArgs e)
+    {
+        if (sender is not Button { DataContext: Bookmark bookmark })
+            return;
+
+        e.Handled = true;
+
+        var result = MessageBox.Show(
+            $"بوک‌مارک «{bookmark.Name}» حذف شود؟",
+            "حذف بوک‌مارک",
+            MessageBoxButton.YesNo,
+            MessageBoxImage.Question);
+
+        if (result != MessageBoxResult.Yes)
+            return;
+
+        _bookmarks.Remove(bookmark);
+        SaveBookmarks();
+    }
+
+    private async void OpenAddress_Click(object sender, RoutedEventArgs e)
+    {
+        await OpenUrlAsync(AddressBox.Text);
+    }
+
+    private async void AddressBox_KeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key != Key.Enter)
+            return;
+
+        e.Handled = true;
+        await OpenUrlAsync(AddressBox.Text);
+    }
+
+    private async Task OpenUrlAsync(string rawUrl)
     {
         var url = NormalizeUrl(rawUrl);
         if (url is null)
         {
-            MessageBox.Show("آدرس سایت معتبر نیست.", "BrowserDesk",
-                MessageBoxButton.OK, MessageBoxImage.Warning);
+            MessageBox.Show(
+                "آدرس سایت معتبر نیست.",
+                "BrowserDesk",
+                MessageBoxButton.OK,
+                MessageBoxImage.Warning);
+            return;
+        }
+
+        if (!_browserService.IsInstalled(_selectedBrowser))
+        {
+            MessageBox.Show(
+                "مرورگر انتخاب‌شده روی ویندوز نصب نیست.",
+                "BrowserDesk",
+                MessageBoxButton.OK,
+                MessageBoxImage.Warning);
             return;
         }
 
         try
         {
-            if (DockManagerRightCheckBox.IsChecked == true)
-            {
-                var hwnd = new WindowInteropHelper(this).Handle;
-                _browserService.TileRight(hwnd);
-            }
+            CurrentSiteText.Text = "در حال باز کردن...";
+            BrowserHost.Visibility = Visibility.Visible;
+            BrowserHost.UpdateLayout();
 
-            await _browserService.OpenAsync(
-                browser,
-                url,
-                TileLeftCheckBox.IsChecked == true);
+            var hwnd = await _browserService.OpenEmbeddedWindowAsync(_selectedBrowser, url);
+
+            BrowserHost.Attach(hwnd);
+            EmptyState.Visibility = Visibility.Collapsed;
+            AddressBox.Text = url;
+            CurrentSiteText.Text = new Uri(url).Host;
         }
         catch (Exception ex)
         {
-            MessageBox.Show(ex.Message, "خطا در اجرای مرورگر",
-                MessageBoxButton.OK, MessageBoxImage.Error);
+            if (!BrowserHost.HasBrowser)
+            {
+                BrowserHost.Visibility = Visibility.Hidden;
+                EmptyState.Visibility = Visibility.Visible;
+            }
+
+            CurrentSiteText.Text = "باز کردن سایت ناموفق بود";
+
+            MessageBox.Show(
+                ex.Message,
+                "خطا در اجرای مرورگر",
+                MessageBoxButton.OK,
+                MessageBoxImage.Error);
         }
+    }
+
+    private void ToggleBookmarkEditor_Click(object sender, RoutedEventArgs e)
+    {
+        BookmarkEditorPanel.Visibility =
+            BookmarkEditorPanel.Visibility == Visibility.Visible
+                ? Visibility.Collapsed
+                : Visibility.Visible;
     }
 
     private void AddBookmark_Click(object sender, RoutedEventArgs e)
@@ -82,8 +179,11 @@ public partial class MainWindow : Window
 
         if (string.IsNullOrWhiteSpace(name) || url is null)
         {
-            MessageBox.Show("نام و آدرس معتبر وارد کنید.", "BrowserDesk",
-                MessageBoxButton.OK, MessageBoxImage.Information);
+            MessageBox.Show(
+                "نام و آدرس معتبر وارد کنید.",
+                "BrowserDesk",
+                MessageBoxButton.OK,
+                MessageBoxImage.Information);
             return;
         }
 
@@ -91,35 +191,19 @@ public partial class MainWindow : Window
         {
             Name = name,
             Url = url,
-            Browser = GetSelectedBrowser(BookmarkBrowserCombo)
+            Browser = _selectedBrowser
         });
 
         SaveBookmarks();
+
         BookmarkNameBox.Clear();
         BookmarkUrlBox.Text = "https://";
-    }
-
-    private void DeleteBookmark_Click(object sender, RoutedEventArgs e)
-    {
-        if (BookmarksGrid.SelectedItem is not Bookmark bookmark)
-            return;
-
-        _bookmarks.Remove(bookmark);
-        SaveBookmarks();
+        BookmarkEditorPanel.Visibility = Visibility.Collapsed;
     }
 
     private void SaveBookmarks()
     {
         _bookmarkService.Save(_bookmarks);
-    }
-
-    private static BrowserKind GetSelectedBrowser(ComboBox combo)
-    {
-        if (combo.SelectedItem is ComboBoxItem item &&
-            Enum.TryParse<BrowserKind>(item.Tag?.ToString(), out var browser))
-            return browser;
-
-        return BrowserKind.Chrome;
     }
 
     private static string? NormalizeUrl(string? value)
@@ -128,6 +212,7 @@ public partial class MainWindow : Window
             return null;
 
         var text = value.Trim();
+
         if (!text.Contains("://", StringComparison.Ordinal))
             text = "https://" + text;
 
