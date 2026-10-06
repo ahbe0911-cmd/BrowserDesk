@@ -7,6 +7,12 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <AssemblyName>BrowserDesk</AssemblyName>
     <RootNamespace>BrowserDesk</RootNamespace>
-    <Version>0.1.0</Version>
+    <Version>0.2.0</Version>
   </PropertyGroup>
+
+  <ItemGroup>
+    <Resource Include="..\..\Assets\Fonts\Vazirmatn.ttf">
+      <Link>Assets\Fonts\Vazirmatn.ttf</Link>
+    </Resource>
+  </ItemGroup>
 </Project>
